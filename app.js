@@ -147,12 +147,8 @@ function tas_handler_udp(data,remote) {
         var device_id = payload_decode(line);
         logger.log('info',JSON.stringify({"ID":device_id,"MSG":line}));
         // console.log('----> got data for [' + device_id + '] from tas ---->');
-        var cin_path = conf.ae.parent + '/' +conf.ae.name + '/'+conf.cnt.name +'/'+ device_id+'/up';        var cin_obj = {
-            'm2m:cin':{
-                'con': line
-            }
-        }
-        keti_mobius.create_cin(cin_path, cin_obj);
+        var cin_path = conf.ae.parent + '/' +conf.ae.name + '/'+conf.cnt.name +'/'+ device_id+'/up';
+        keti_mobius.create_cin(cin_path, line);
         console.log(pop_configure);
         for(var key in pop_configure){
             var keysp = key.split('/');
@@ -208,34 +204,13 @@ function tas_handler (data) {
 function cretation_dev_res(devlist){
     for(var i = 0; i < devlist.length; i++){
         var dev_parent_path = '/'+devlist[i];
-        var upcnt_devObj = {
-            'm2m:cnt':{
-                'rn' : 'up'
-            }
-        };
-        var downcnt_devObj = {
-            'm2m:cnt': {
-                'rn': 'down'
-            }
-        };
-        var upcrt_dev_resp = keti_mobius.create_cnt(dev_parent_path, upcnt_devObj);
-        var downcrt_dev_resp = keti_mobius.create_cnt(dev_parent_path, downcnt_devObj);
+        var upcrt_dev_resp = keti_mobius.create_cnt(dev_parent_path, 'up');
+        var downcrt_dev_resp = keti_mobius.create_cnt(dev_parent_path, 'down');
         if(upcrt_dev_resp.code == 201 || upcrt_dev_resp.code == 409 && downcrt_dev_resp == 201 || downcrt_dev_resp ==409){
             console.log(devlist[i] + "Creation Complete!!");
         }
-
         var down_subpath = dev_parent_path + "/down"
         var sub_body = {nu:['mqtt://' + conf.noti.host  +'/'+ conf.noti.id + '?ct=json']};
-        var sub_obj = {
-            'm2m:sub':
-                {
-                    'rn' : "configure",
-                    'enc': {'net': [1,2,3,4]},
-                    'nu' : sub_body.nu,
-                    'nct': 1,
-                    'exc': 0
-                }
-        };
         var sub_rtvpath = down_subpath +"/configure";
         var resp_sub = keti_mobius.retrieve_sub(sub_rtvpath);
 
@@ -243,12 +218,12 @@ function cretation_dev_res(devlist){
             resp_sub = keti_mobius.delete_res(sub_rtvpath);
 
             if (resp_sub.code == 200) {
-                resp_sub = keti_mobius.create_sub(down_subpath, sub_obj);
+                resp_sub = keti_mobius.create_sub(down_subpath, "configure", sub_body.nu);
 
             }
         }
         else if (resp_sub.code == 404) {
-            keti_mobius.create_sub(down_subpath, sub_obj);
+            keti_mobius.create_sub(down_subpath, "configure", sub_body.nu);
         }
         else{
         }
@@ -277,29 +252,16 @@ function default_resource(){
     if(ae_resp.code == 201 || ae_resp.code == 409){
         var sub_path = conf.ae.parent + '/' + conf.ae.name + '/'+conf.cnt.name;
         var sub_body = {nu:['mqtt://' + conf.noti.host  +'/'+ conf.noti.id + '?ct=json']};
-        var sub_obj = {
-            'm2m:sub':
-                {
-                    'rn' : "sub_crtdevice",
-                    'enc': {'net': [1,2,3,4]},
-                    'nu' : sub_body.nu,
-                    'nct': 1,
-                    'exc': 0
-                }
-        };
         var sub_rtvpath = sub_path +'/'+"sub_crtdevice";
         var resp_sub = keti_mobius.retrieve_sub(sub_rtvpath);
-
         if (resp_sub.code == 200) {
             resp_sub = keti_mobius.delete_res(sub_rtvpath);
-
             if (resp_sub.code == 200) {
-                resp_sub = keti_mobius.create_sub(sub_path, sub_obj);
-
+                resp_sub = keti_mobius.create_sub(sub_path, "sub_crtdevice", sub_body.nu);
             }
         }
         else if (resp_sub.code == 404) {
-            keti_mobius.create_sub(sub_path, sub_obj);
+            keti_mobius.create_sub(sub_path, "sub_crtdevice", sub_body.nu);
         }
         else{
         }
@@ -388,9 +350,7 @@ function mqtt_noti_action(jsonObj, callback) {
                 }
                 else {
                     console.log('mqtt ' + 'json' + ' notification <----');
-
                     var sur = pc.sgn.sur.split('/');
-                    console.log(sur);
                     if(pc.sgn.nev.net == '3'){
                         if(obj.ty == '3'){
 
