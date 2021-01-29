@@ -4,7 +4,7 @@ var util = require('util');
 var net = require('net');
 var udp = require('dgram');
 const logger = require('./logger');
-var fs = require('fs');
+// var fs = require('fs');
 var ip = require('ip');
 var jsonpath = require('jsonpath');
 var mobius = require('./MobiusConnector').mobius;
@@ -135,7 +135,10 @@ function tas_handler_udp(data,remote) {
     replace_data = str_data.replace(/ /g,"");
     var data_arr = replace_data.split('a3');
     console.log(data_arr+"  "+JSON.stringify(remote));
-
+    // str_data = data.toString();
+    // console.log(str_data);
+    // var data_arr = str_data.split('a3');
+    // console.log(data_arr);
     if(data_arr.length >= 2) {
         data_arr  = data_arr.filter(function(item) {
 	    return item !== '';
@@ -144,20 +147,28 @@ function tas_handler_udp(data,remote) {
         var device_id = payload_decode(line);
         logger.log('info',JSON.stringify({"ID":device_id,"MSG":line}));
         // console.log('----> got data for [' + device_id + '] from tas ---->');
-        var parent = conf.ae.parent + '/' +conf.ae.name + '/'+conf.cnt.name +'/'+ device_id;
-        var cin_obj = {
+        var cin_path = conf.ae.parent + '/' +conf.ae.name + '/'+conf.cnt.name +'/'+ device_id+'/up';        var cin_obj = {
             'm2m:cin':{
                 'con': line
             }
         }
-        keti_mobius.create_cin(parent, cin_obj);
-       // var meg = Buffer.from('server Data!!');
-       // console.log(remote.address+":"+remote.port);
-       //  _server.send(meg,0,meg.length,remote.port,remote.address,function(err,bytes){
-       //     if(err){
-       //         console.log(err);
-       //     }
-       //  });
+        keti_mobius.create_cin(cin_path, cin_obj);
+        console.log(pop_configure);
+        for(var key in pop_configure){
+            var keysp = key.split('/');
+            if(keysp[0] == device_id){
+                logger.log('info',JSON.stringify({"ID":device_id,"MSG":pop_configure[key]}));
+                var msg = Buffer.from(pop_configure[key]);
+                console.log(remote.address+":"+remote.port);
+                _server.send(msg,0,msg.length,remote.port,remote.address,function(err,bytes){
+                   if(err){
+                       console.log(err);
+                   }
+                });
+                delete pop_configure[key];
+            }
+        }
+
     }
     else{
         logger.log('error',JSON.stringify({"MSG":data_arr}));
@@ -185,17 +196,76 @@ function tas_handler (data) {
         tas_buffer[this.id] = tas_buffer[this.id].replace(line+'a3', '');
         var device_id = payload_decode(line)
         console.log('----> got data for [' + device_id + '] from tas ---->');
-    var parent = conf.ae.parent + '/' +conf.ae.name + '/'+conf.cnt.name +'/'+ device_id;
-        var cin_obj = {
-            'm2m:cin':{
-                'con': line
+    var cin_path = conf.ae.parent + '/' +conf.ae.name + '/'+conf.cnt.name +'/'+ device_id;
+    var cin_obj = {
+        'm2m:cin':{
+            'con': line
+        }
+    }
+    keti_mobius.create_cin(cin_path, cin_obj);
+    }
+}
+function cretation_dev_res(devlist){
+    for(var i = 0; i < devlist.length; i++){
+        var dev_parent_path = '/'+devlist[i];
+        var upcnt_devObj = {
+            'm2m:cnt':{
+                'rn' : 'up'
+            }
+        };
+        var downcnt_devObj = {
+            'm2m:cnt': {
+                'rn': 'down'
+            }
+        };
+        var upcrt_dev_resp = keti_mobius.create_cnt(dev_parent_path, upcnt_devObj);
+        var downcrt_dev_resp = keti_mobius.create_cnt(dev_parent_path, downcnt_devObj);
+        if(upcrt_dev_resp.code == 201 || upcrt_dev_resp.code == 409 && downcrt_dev_resp == 201 || downcrt_dev_resp ==409){
+            console.log(devlist[i] + "Creation Complete!!");
+        }
+
+        var down_subpath = dev_parent_path + "/down"
+        var sub_body = {nu:['mqtt://' + conf.noti.host  +'/'+ conf.noti.id + '?ct=json']};
+        var sub_obj = {
+            'm2m:sub':
+                {
+                    'rn' : "configure",
+                    'enc': {'net': [1,2,3,4]},
+                    'nu' : sub_body.nu,
+                    'nct': 1,
+                    'exc': 0
+                }
+        };
+        var sub_rtvpath = down_subpath +"/configure";
+        var resp_sub = keti_mobius.retrieve_sub(sub_rtvpath);
+
+        if (resp_sub.code == 200) {
+            resp_sub = keti_mobius.delete_res(sub_rtvpath);
+
+            if (resp_sub.code == 200) {
+                resp_sub = keti_mobius.create_sub(down_subpath, sub_obj);
+
             }
         }
-        keti_mobius.create_cin(parent, cin_obj);
+        else if (resp_sub.code == 404) {
+            keti_mobius.create_sub(down_subpath, sub_obj);
+        }
+        else{
+        }
+        if(resp_sub.code == 201 || resp_sub.code == 409){
+            console.log("SUB_Complete!!");
+        }
     }
 }
 
-function init_resource(){
+function get_device_resource(){
+    var get_devlist_path = conf.ae.parent + '/' + conf.ae.name + '/' + conf.cnt.name +'?fu=1&ty=3&lvl=1';
+    var resp_devlist = keti_mobius.retrieve_cnt(get_devlist_path);
+    var devlist = JSON.parse(resp_devlist["body"])["m2m:uril"];
+    cretation_dev_res(devlist);
+}
+
+function default_resource(){
     var ae_obj = {
       'm2m:ae':{
         'api': conf.ae.id,
@@ -205,32 +275,8 @@ function init_resource(){
     };
     var ae_resp = keti_mobius.create_ae(conf.ae.parent, ae_obj);
     if(ae_resp.code == 201 || ae_resp.code == 409){
-        // var cnt_parent_path = conf.ae.parent + '/' + conf.ae.name;
-        // var cnt_obj = {
-        //         'm2m:cnt':{
-        //         'rn' : conf.cnt.name //meter
-        //         }
-        //     };
-        //     var cnt_resp = keti_mobius.create_cnt(cnt_parent_path, cnt_obj);
-        //     if (cnt_resp.code == 201 || cnt_resp.code == 409){
-        //         for (var i = 0; i < dev_ids.length; i++) {
-        //             var dev_parent_path = cnt_parent_path +'/'+conf.cnt.name;
-        //             var cnt_devObj = {
-        //                 'm2m:cnt':{
-        //                 'rn' : dev_ids[i].id
-        //                 }
-        //             };
-        //             console.log(dev_parent_path);
-        //             var crt_dev_resp = keti_mobius.create_cnt(dev_parent_path, cnt_devObj);
-        //             if(crt_dev_resp.code == 201 || crt_dev_resp.code == 409){
-        //                     console.log(dev_ids[i].id + "Create!!");
-        //             }
-        //         }
-        //     }
-
         var sub_path = conf.ae.parent + '/' + conf.ae.name + '/'+conf.cnt.name;
         var sub_body = {nu:['mqtt://' + conf.noti.host  +'/'+ conf.noti.id + '?ct=json']};
-        // var sub_body = {nu:['mqtt://' + conf.noti.host  +'/'+ conf.ae.id + '?ct=json']};
         var sub_obj = {
             'm2m:sub':
                 {
@@ -261,9 +307,11 @@ function init_resource(){
            console.log("SUB_Complete!!");
         }
     }
+    get_device_resource();
     init_mqtt_client();
     nb_socket();
 }
+
 
 function parse_sgn(rqi, pc, callback) {
     if(pc.sgn) {
@@ -309,21 +357,6 @@ function parse_sgn(rqi, pc, callback) {
                     obj = null;
                 }
             }
-            // else if (sgnObj.sud) {
-            //     console.log('[mqtt_noti_action] received notification of verification');
-            //     cinObj = {};
-            //     cinObj.sud = sgnObj.sud;
-            // }
-            // else if (sgnObj.vrq) {
-            //     console.log('[mqtt_noti_action] received notification of verification');
-            //     cinObj = {};
-            //     cinObj.vrq = sgnObj.vrq;
-            // }
-            //
-            // else {
-            //     console.log('[mqtt_noti_action] nev tag of m2m:sgn is none. m2m:notification format mismatch with oneM2M spec.');
-            //     cinObj = null;
-            // }
         }
     }
     else {
@@ -333,7 +366,7 @@ function parse_sgn(rqi, pc, callback) {
 
     callback(path_arr, obj, rqi);
 };
-
+var pop_configure = [];
 function mqtt_noti_action(jsonObj, callback) {
     if (jsonObj != null) {
         var op = (jsonObj['m2m:rqp']['op'] == null) ? '' : jsonObj['m2m:rqp']['op'];
@@ -359,23 +392,14 @@ function mqtt_noti_action(jsonObj, callback) {
                     var sur = pc.sgn.sur.split('/');
                     console.log(sur);
                     if(pc.sgn.nev.net == '3'){
-                        console.log(obj);
                         if(obj.ty == '3'){
-                            var id_obj = JSON.stringify({"id" : obj.rn});
-                            fs.readFile("./device_list.json", function (err, data) {
-                                var json = JSON.parse(data)
-                                console.log(json)
-                                json.push(id_obj);
-                                fs.writeFile("./device_list.json", JSON.stringify(json))
-                            })
-                            // fs.writeFile('./device_list.json',id_obj,function (err) {
-                            //     if(err) return console.log(err);
-                            //     console.log("Deviceid list has been updated!")
-                            //
-                            // })
+
                         }
                         else if(obj.ty == '4'){
-
+                            if(sur[5] == 'down'){
+                                pop_configure[sur[4]+'/'+sur[5]] = obj.con;
+                                console.log("configure!");
+                            }
                         }
                         else{
                             console.log("[mqtt_noti_action] Exception type!")
@@ -393,4 +417,4 @@ function mqtt_noti_action(jsonObj, callback) {
     }
 }
 
-setTimeout(init_resource,100)
+setTimeout(default_resource,100)
