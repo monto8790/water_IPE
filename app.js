@@ -4,24 +4,17 @@ var util = require('util');
 var net = require('net');
 var udp = require('dgram');
 const logger = require('./logger');
-// var fs = require('fs');
 var ip = require('ip');
 var jsonpath = require('jsonpath');
 var mobius = require('./MobiusConnector').mobius;
 var _server = null;
 global.conf = require('./conf.js');
-var net_module = 'udp';
 
 var event = new events.EventEmitter();
 var keti_mobius = new mobius();
 keti_mobius.set_mobius_info(conf.cse.host, conf.cse.port,conf.ae.id);
 
-var tas_buffer = {};
-// fs.readFile("./device_list.json", function(err, data) {
-//     if (err) throw err;
-//     dev_ids = JSON.parse(data);
-//     console.log(dev_ids);
-// });
+
 function init_mqtt_client() {
     var mobius_connectOptions = {
         host: conf.cse.host,
@@ -89,56 +82,31 @@ function response_mqtt (rsp_topic, rsc, to, fr, rqi, inpcs) {
 }
 
 function nb_socket() {
-    if(net_module == 'tcp'){
-        if(_server == null) {
-            _server = net.createServer(function (socket) {
-                console.log('socket connected');
-                socket.id = Math.random() * 1000;
-                tas_buffer[socket.id] = '';
-                socket.on('data', tas_handler);
-                socket.on('end', function() {
-                    console.log('end');
-                });
-                socket.on('close', function() {
-                    console.log('close');
-                });
-                socket.on('error', function(e) {
-                    console.log('error ', e);
-                });
-            });
+    console.log('socket listening');
+    if(_server == null){
+        _server = udp.createSocket('udp4');
+        _server.on('listening', function () {
+            console.log('UDP Server(' + ip.address() + ") for TAS is listening on port" + conf.ae.socport);
+        });
+        _server.on('message', tas_handler_udp);
+        _server.on('close', function(){
+            console.log("close");
+        });
+        _server.bind(conf.ae.socport,"0.0.0.0");
 
-            _server.listen(conf.ae.socport, function() {
-                console.log('TCP Server (' + ip.address() + ') for TAS is listening on port ' + conf.ae.socport);
-            });
-        }
-    }
-    else{
-	    console.log('socket listening');
-        if(_server == null){
-            _server = udp.createSocket('udp4');
-            _server.on('listening', function () {
-                console.log('UDP Server(' + ip.address() + ") for TAS is listening on port" + conf.ae.socport);
-            });
-            _server.on('message', tas_handler_udp);
-            _server.on('close', function(){
-    	        console.log("close");
-            });
-            _server.bind(conf.ae.socport,"0.0.0.0");
-
-        }
     }
 }
 
 function tas_handler_udp(data,remote) {
     console.log(remote.address + ":" + remote.port);
-    str_data =  data.toString('hex').match(/../g).join(' ');
-    replace_data = str_data.replace(/ /g,"");
-    var data_arr = replace_data.split('a3');
-    console.log(data_arr+"  "+JSON.stringify(remote));
-    // str_data = data.toString();
-    // console.log(str_data);
-    // var data_arr = str_data.split('a3');
-    // console.log(data_arr);
+    // str_data =  data.toString('hex').match(/../g).join(' ');
+    // replace_data = str_data.replace(/ /g,"");
+    // var data_arr = replace_data.split('a3');
+    // console.log(data_arr+"  "+JSON.stringify(remote));
+    str_data = data.toString();
+    console.log(str_data);
+    var data_arr = str_data.split('a3');
+    console.log(data_arr);
     if(data_arr.length >= 2) {
         data_arr  = data_arr.filter(function(item) {
 	    return item !== '';
@@ -177,30 +145,7 @@ function payload_decode(data){
     return device_id;
 }
 
-function tas_handler (data) {
-    str_data =  data.toString('hex').match(/../g).join(' ');
-    replace_data = str_data.replace(/ /g,"");
-    tas_buffer[this.id] += replace_data;
-    console.log(replace_data);
-    var data_arr = tas_buffer[this.id].split('a3');
-	console.log(data_arr.length)
-    if(data_arr.length >= 2) {
-        data_arr  = data_arr.filter(function(item) {
-		    return item !== '';
-        });
-        var line = data_arr.pop();
-        tas_buffer[this.id] = tas_buffer[this.id].replace(line+'a3', '');
-        var device_id = payload_decode(line)
-        console.log('----> got data for [' + device_id + '] from tas ---->');
-    var cin_path = conf.ae.parent + '/' +conf.ae.name + '/'+conf.cnt.name +'/'+ device_id;
-    var cin_obj = {
-        'm2m:cin':{
-            'con': line
-        }
-    }
-    keti_mobius.create_cin(cin_path, cin_obj);
-    }
-}
+
 function cretation_dev_res(devlist){
     for(var i = 0; i < devlist.length; i++){
         var dev_parent_path = '/'+devlist[i];
@@ -353,11 +298,15 @@ function mqtt_noti_action(jsonObj, callback) {
                     var sur = pc.sgn.sur.split('/');
                     if(pc.sgn.nev.net == '3'){
                         if(obj.ty == '3'){
+                            var devpath = [sur[1] + '/' + sur[2] + '/' + sur[3] + '/' + obj.rn];
+                            console.log(devpath);
+                            cretation_dev_res(devpath);
 
                         }
                         else if(obj.ty == '4'){
                             if(sur[5] == 'down'){
                                 pop_configure[sur[4]+'/'+sur[5]] = obj.con;
+                                console.log(pop_configure);
                                 console.log("configure!");
                             }
                         }
