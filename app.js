@@ -99,14 +99,14 @@ function nb_socket() {
 
 function tas_handler_udp(data,remote) {
     console.log(remote.address + ":" + remote.port);
-    // str_data =  data.toString('hex').match(/../g).join(' ');
-    // replace_data = str_data.replace(/ /g,"");
-    // var data_arr = replace_data.split('a3');
-    // console.log(data_arr+"  "+JSON.stringify(remote));
-    str_data = data.toString();
-    console.log(str_data);
-    var data_arr = str_data.split('a3');
-    console.log(data_arr);
+    str_data =  data.toString('hex').match(/../g).join(' ');
+    replace_data = str_data.replace(/ /g,"");
+    var data_arr = replace_data.split('a3');
+//     console.log(data_arr+"  "+JSON.stringify(remote));
+//     str_data = data.toString();
+//     console.log(str_data);
+//     var data_arr = str_data.split('a3');
+//     console.log(data_arr);
     if(data_arr.length >= 2) {
         data_arr  = data_arr.filter(function(item) {
 	    return item !== '';
